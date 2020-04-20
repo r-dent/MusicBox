@@ -3,7 +3,12 @@
 #include <SPI.h>
 #include <SD.h>
 #include <MFRC522.h>
+#include <Audio.h>
 
+void playFile(String path);
+void stopAudio();
+void checkRFIDInterval();
+void checkRFIDCard();
 void printDirectory(File dir, int numTabs);
 void printFile(String path);
 void useSDCard(bool shouldUse);
@@ -13,7 +18,13 @@ const int RST_PIN = 22; // Reset pin
 const int RFID_SELECT_PIN = 21; 
 const int SD_SELECT_PIN = 5;
 
+const int I2S_DOUT = 25;
+const int I2S_BCLK = 27;
+const int I2S_LRC = 26;
+
+Audio audio;
 File sdCardRoot;
+bool isPlayingAudio = false;
  
 MFRC522 mfrc522(RFID_SELECT_PIN, RST_PIN); // Create MFRC522 instance 
 
@@ -45,45 +56,35 @@ void setup()
   mfrc522.PCD_Init(); // Init MFRC522
   mfrc522.PCD_DumpVersionToSerial(); // Show details of PCD - MFRC522 Card Reader details
   Serial.println(F("Scan PICC to see UID, SAK, type, and data blocks..."));
+  
+  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  audio.setVolume(10);
+
 }
 
 void loop(void) {
 
-  useRFID(true);
-  // Look for new cards
-  if ( ! mfrc522.PICC_IsNewCardPresent()) {
-    return;
+  if (isPlayingAudio) {
+    audio.loop();
   }
-  Serial.println("New card present");
-  
-  // Select one of the cards
-  if ( ! mfrc522.PICC_ReadCardSerial()) {
-    return;
-  }
+  checkRFIDInterval();
+}
 
-  Serial.print("UID tag:");
-  String content= "";
-  
-  for (byte i = 0; i < mfrc522.uid.size; i++) 
-  {
-     content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));
-     content.concat(String(mfrc522.uid.uidByte[i], HEX));
-  }
-  content.toUpperCase();
-  Serial.println(content);
 
-  if (content.substring(1) == "69 E9 FA 63") {
-    Serial.println("Authorized access");
-    useSDCard(true);
-    printFile("/info.txt");
-    delay(3000);
-  } else {
-    Serial.println("Access denied");
-    delay(3000);
+void playFile(String path) {
+  stopAudio();
+  useSDCard(true);
+  Serial.print("Playing file ");
+  Serial.println(path);
+  audio.connecttoSD(path);
+  isPlayingAudio = true;
+}
+
+void stopAudio() {
+  if (isPlayingAudio) {
+    audio.stopSong();
+    isPlayingAudio = false;
   }
-  
-  // Dump debug info about the card; PICC_HaltA() is automatically called
-  // mfrc522.PICC_DumpToSerial(&(mfrc522.uid));
 }
 
 // SD Card methods.
@@ -128,6 +129,54 @@ void printFile(String path) {
     Serial.println("error opening ");
     Serial.print(path);
   }
+}
+
+// RFID related.
+
+void checkRFIDInterval() {
+	static const unsigned long REFRESH_INTERVAL = 1000; // ms
+	static unsigned long lastRefreshTime = 0;
+	
+	if(millis() - lastRefreshTime >= REFRESH_INTERVAL) {
+		lastRefreshTime += REFRESH_INTERVAL;
+    checkRFIDCard();
+	}
+}
+
+void checkRFIDCard() {
+
+  // Look for new cards
+  if ( ! mfrc522.PICC_IsNewCardPresent()) {
+    return;
+  }
+  stopAudio();
+  //Serial.println("New card present");
+  
+  // Select one of the cards
+  if ( ! mfrc522.PICC_ReadCardSerial()) {
+    return;
+  }
+
+  //Serial.print("UID tag:");
+  String content= "";
+  
+  for (byte i = 0; i < mfrc522.uid.size; i++) 
+  {
+     content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));
+     content.concat(String(mfrc522.uid.uidByte[i], HEX));
+  }
+  content.toUpperCase();
+  Serial.println(content);
+
+  if (content.substring(1) == "69 E9 FA 63") {
+    playFile("/320k_test.mp3");
+  } else {
+    // playFile("/KOGNITIF_Soul_Food_03.mp3");
+    playFile("/Da_Josen_One_Seite_B.mp3 ");
+  }
+  
+  // Dump debug info about the card; PICC_HaltA() is automatically called
+  // mfrc522.PICC_DumpToSerial(&(mfrc522.uid));
 }
 
 // SPI related.
