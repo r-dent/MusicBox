@@ -22,9 +22,12 @@ const int I2S_DOUT = 25;
 const int I2S_BCLK = 27;
 const int I2S_LRC = 26;
 
+const int STOP_BTN_PIN = T0;
+
 Audio audio;
 File sdCardRoot;
 bool isPlayingAudio = false;
+time_t lastSwitchTime = 0;
  
 MFRC522 mfrc522(RFID_SELECT_PIN, RST_PIN); // Create MFRC522 instance 
 
@@ -42,7 +45,7 @@ void setup()
   useSDCard(true);
 
   Serial.print("Initializing SD card...");
-  if (SD.begin(5)) {
+  if (SD.begin(SD_SELECT_PIN)) {
     Serial.println("initialization done.");
     sdCardRoot = SD.open("/");
     printDirectory(sdCardRoot, 0);
@@ -58,18 +61,26 @@ void setup()
   Serial.println(F("Scan PICC to see UID, SAK, type, and data blocks..."));
   
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-  audio.setVolume(10);
-
+  audio.setVolume(2);
 }
 
 void loop(void) {
 
+  time_t currTime = millis();
+
   if (isPlayingAudio) {
     audio.loop();
   }
+
+  if (currTime - lastSwitchTime > 300 && digitalRead(STOP_BTN_PIN) == LOW) {
+    stopAudio();
+    lastSwitchTime = currTime;
+  }
+
   checkRFIDInterval();
 }
 
+// Audio related.
 
 void playFile(String path) {
   stopAudio();
