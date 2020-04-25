@@ -5,12 +5,13 @@
 #include <MFRC522.h>
 #include <Audio.h>
 
+#include <ConfigServer.h>
+#include <SDCardHelper.h>
+
 void playFile(String path);
 void stopAudio();
 void checkRFIDInterval();
 void checkRFIDCard();
-void printDirectory(File dir, int numTabs);
-void printFile(String path);
 void useSDCard(bool shouldUse);
 void useRFID(bool shouldUse);
 
@@ -28,6 +29,8 @@ Audio audio;
 File sdCardRoot;
 bool isPlayingAudio = false;
 time_t lastSwitchTime = 0;
+ConfigServer configServer;
+SDCardHelper sdCard;
  
 MFRC522 mfrc522(RFID_SELECT_PIN, RST_PIN); // Create MFRC522 instance 
 
@@ -48,7 +51,7 @@ void setup()
   if (SD.begin(SD_SELECT_PIN)) {
     Serial.println("initialization done.");
     sdCardRoot = SD.open("/");
-    printDirectory(sdCardRoot, 0);
+    sdCard.printDirectory(sdCardRoot, 0, false);
   } else {
     Serial.println("initialization failed!");
   }
@@ -62,6 +65,8 @@ void setup()
   
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   audio.setVolume(2);
+
+  configServer.setup();
 }
 
 void loop(void) {
@@ -71,7 +76,9 @@ void loop(void) {
   if (isPlayingAudio) {
     audio.loop();
   }
-
+  
+  configServer.loop();
+  
   if (currTime - lastSwitchTime > 300 && digitalRead(STOP_BTN_PIN) == LOW) {
     stopAudio();
     lastSwitchTime = currTime;
@@ -95,50 +102,6 @@ void stopAudio() {
   if (isPlayingAudio) {
     audio.stopSong();
     isPlayingAudio = false;
-  }
-}
-
-// SD Card methods.
-
-void printDirectory(File dir, int numTabs) {
-  while (true) {
-
-    File entry =  dir.openNextFile();
-    if (! entry) {
-      // no more files
-      break;
-    }
-    for (uint8_t i = 0; i < numTabs; i++) {
-      Serial.print('\t');
-    }
-    Serial.print(entry.name());
-    if (entry.isDirectory()) {
-      Serial.println("/");
-      printDirectory(entry, numTabs + 1);
-    } else {
-      // files have sizes, directories do not
-      Serial.print("\t\t");
-      Serial.println(entry.size(), DEC);
-    }
-    entry.close();
-  }
-}
-
-void printFile(String path) {
-  File file = SD.open(path);
-  if (file) {
-    Serial.println(path);
-    
-    // read from the file until there's nothing else in it:
-    while (file.available()) {
-    	Serial.write(file.read());
-    }
-    // close the file:
-    file.close();
-  } else {
-  	// if the file didn't open, print an error:
-    Serial.println("error opening ");
-    Serial.print(path);
   }
 }
 
@@ -169,17 +132,22 @@ void checkRFIDCard() {
   }
 
   //Serial.print("UID tag:");
-  String content= "";
+  String uid = "";
   
   for (byte i = 0; i < mfrc522.uid.size; i++) 
   {
-     content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));
-     content.concat(String(mfrc522.uid.uidByte[i], HEX));
+     uid.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));
+     uid.concat(String(mfrc522.uid.uidByte[i], HEX));
   }
-  content.toUpperCase();
-  Serial.println(content);
 
-  if (content.substring(1) == "69 E9 FA 63") {
+  uid.trim();
+  uid.toLowerCase();
+  uid.replace(" ", "_");
+
+  Serial.println(uid);
+  configServer.RFIDCardUid = uid;
+
+  if (uid == "69_e9_fa_63") {
     playFile("/320k_test.mp3");
   } else {
     // playFile("/KOGNITIF_Soul_Food_03.mp3");
